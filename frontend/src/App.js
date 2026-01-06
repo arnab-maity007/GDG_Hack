@@ -5,7 +5,7 @@ import './App.css';
 function App() {
   const [validation, setValidation] = useState(null);
 
-  const topicText = "Photosynthesis is the process by which plants convert sunlight, carbon dioxide, and water into glucose and oxygen.";
+  const topicText = "A quadratic equation is a second-degree polynomial equation of the form ax squared plus bx plus c equals zero, where a is not equal to zero. It can be solved using the quadratic formula x equals negative b plus or minus square root of b squared minus 4ac over 2a.";
 
   const handleResult = (isCorrect, score) => {
     setValidation({ isCorrect, score });
