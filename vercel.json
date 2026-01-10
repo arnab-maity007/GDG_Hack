@@ -1,18 +1,9 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "gdg_hack_report/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/gdg_hack_report/$1"
-    }
+  "buildCommand": "cd gdg_hack_report && npm install && npm run build",
+  "outputDirectory": "gdg_hack_report/dist",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/" }
   ]
 }
