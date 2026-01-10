@@ -7,6 +7,8 @@ import {
 import { teacherMonitoringService } from '../services/TeacherMonitoringService';
 import { studentAttentivenessService } from '../services/StudentAttentivenessService';
 import { attendanceService } from '../services/AttendanceService';
+import LiveFaceCamera from '../components/LiveFaceCamera';
+import { faceDatabase } from '../services/FaceDatabase';
 
 // Mock student data for demo
 const mockStudents = [
@@ -17,8 +19,53 @@ const mockStudents = [
   { id: 's5', name: 'Ravi Mehta', grade: '10A' },
 ];
 
-// Attendance Panel Component
+// AI-Powered Attendance Panel Component with Live Face Recognition
 const AttendancePanel = ({ onAttendanceUpdate }) => {
+  const [showLiveCamera, setShowLiveCamera] = useState(false);
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Camera className="w-6 h-6 text-white" />
+            <h3 className="text-lg font-bold text-white">AI Face Attendance</h3>
+          </div>
+          <button
+            onClick={() => setShowLiveCamera(!showLiveCamera)}
+            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+              showLiveCamera 
+                ? 'bg-red-500 hover:bg-red-600 text-white' 
+                : 'bg-white hover:bg-gray-100 text-blue-600'
+            }`}
+          >
+            {showLiveCamera ? 'Close Camera' : 'Open Camera'}
+          </button>
+        </div>
+      </div>
+      
+      <div className="p-4">
+        {showLiveCamera ? (
+          <LiveFaceCamera onAttendanceUpdate={onAttendanceUpdate} />
+        ) : (
+          <div className="text-center py-8">
+            <Camera className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h4 className="text-lg font-medium text-gray-700 mb-2">Face Recognition Attendance</h4>
+            <p className="text-gray-500 mb-4">
+              Click "Open Camera" to start AI-powered attendance with face detection
+            </p>
+            <p className="text-sm text-gray-400">
+              Registered: Umang, Mayank, Arnab
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Legacy Attendance Panel for backup
+const LegacyAttendancePanel = ({ onAttendanceUpdate }) => {
   const [isScanning, setIsScanning] = useState(false);
   const [attendance, setAttendance] = useState([]);
   const [scanProgress, setScanProgress] = useState(0);

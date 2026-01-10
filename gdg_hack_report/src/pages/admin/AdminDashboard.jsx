@@ -3,28 +3,57 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import { mockTeachers, mockSystemReport, mockStudents } from '../../utils/mockData';
 import { StatCard } from '../../components/StatCard';
-import { TrendingUp, Users, CheckCircle, AlertCircle, Video, Bell, Activity } from 'lucide-react';
+import { TrendingUp, Users, CheckCircle, AlertCircle, Video, Bell, Activity, UserPlus, Camera, Shield, Eye, GraduationCap } from 'lucide-react';
 import { liveDataService } from '../../services/LiveDataService';
+import { faceDatabase } from '../../services/FaceDatabase';
+import StudentPhotoUpload from '../../components/StudentPhotoUpload';
+import LiveFaceCamera from '../../components/LiveFaceCamera';
 
 export const AdminDashboard = () => {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState(liveDataService.getSystemMetrics());
   const [todaySummary, setTodaySummary] = useState(liveDataService.getTodaySummary());
   const [alerts, setAlerts] = useState(liveDataService.getAlerts(5));
+  const [showAddStudent, setShowAddStudent] = useState(false);
+  const [showLiveCamera, setShowLiveCamera] = useState(false);
+  const [registeredStudents, setRegisteredStudents] = useState([]);
+  const [presentStudents, setPresentStudents] = useState([]);
 
   useEffect(() => {
     const unsubMetrics = liveDataService.subscribe('systemMetrics', setMetrics);
     const unsubAlerts = liveDataService.subscribe('alerts', () => setAlerts(liveDataService.getAlerts(5)));
     
+    // Initialize face database and load students
+    const initDB = async () => {
+      await faceDatabase.initialize();
+      setRegisteredStudents(faceDatabase.getAllStudents());
+      setPresentStudents(faceDatabase.getPresentStudents());
+    };
+    initDB();
+    
     // Update today's summary periodically
-    const interval = setInterval(() => setTodaySummary(liveDataService.getTodaySummary()), 10000);
+    const interval = setInterval(() => {
+      setTodaySummary(liveDataService.getTodaySummary());
+      setPresentStudents(faceDatabase.getPresentStudents());
+    }, 5000);
+    
+    // Listen for attendance changes
+    const handleAttendance = () => {
+      setPresentStudents(faceDatabase.getPresentStudents());
+    };
+    window.addEventListener('attendanceChange', handleAttendance);
     
     return () => {
       unsubMetrics();
       unsubAlerts();
       clearInterval(interval);
+      window.removeEventListener('attendanceChange', handleAttendance);
     };
   }, []);
+
+  const handleStudentAdded = (student) => {
+    setRegisteredStudents(faceDatabase.getAllStudents());
+  };
 
   const report = { ...mockSystemReport, ...metrics };
   const exemplaryPercentage = Math.round((report.exemplaryTeachers / report.totalTeachers) * 100);
@@ -36,6 +65,67 @@ export const AdminDashboard = () => {
 
   return (
     <div className="space-y-6">
+      {/* Team Branding Header */}
+      <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-blue-900 rounded-2xl p-6 shadow-xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center backdrop-blur">
+              <Shield className="w-10 h-10 text-yellow-400" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-black text-white tracking-tight">NOT LIKE US TEAM</h1>
+              <p className="text-purple-200 mt-1 flex items-center gap-2">
+                <Eye className="w-4 h-4" />
+                Admin Control Center • EduPulse AI
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowAddStudent(true)}
+              className="flex items-center gap-2 px-5 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-semibold transition-all shadow-lg"
+            >
+              <UserPlus className="w-5 h-5" />
+              Add Student
+            </button>
+            <button
+              onClick={() => setShowLiveCamera(true)}
+              className="flex items-center gap-2 px-5 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold transition-all shadow-lg"
+            >
+              <Camera className="w-5 h-5" />
+              Live Camera
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Add Student Modal */}
+      {showAddStudent && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <StudentPhotoUpload 
+            onStudentAdded={handleStudentAdded}
+            onClose={() => setShowAddStudent(false)}
+          />
+        </div>
+      )}
+
+      {/* Live Camera Modal */}
+      {showLiveCamera && (
+        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-6xl">
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={() => setShowLiveCamera(false)}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+              >
+                Close Camera
+              </button>
+            </div>
+            <LiveFaceCamera onAttendanceUpdate={() => setPresentStudents(faceDatabase.getPresentStudents())} />
+          </div>
+        </div>
+      )}
+
       {/* Page Header */}
       <div>
         <h1 className="text-3xl font-bold text-edu-dark-blue">Admin Dashboard</h1>
@@ -225,6 +315,68 @@ export const AdminDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Student Management Section */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <GraduationCap className="w-6 h-6 text-blue-600" />
+            <h2 className="text-lg font-bold text-edu-dark-blue">Registered Students</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-500">
+              {presentStudents.length} of {registeredStudents.length} present
+            </span>
+            <button
+              onClick={() => setShowAddStudent(true)}
+              className="flex items-center gap-2 px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm font-medium"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add New
+            </button>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {registeredStudents.map((student) => {
+            const isPresent = presentStudents.find(s => s.id === student.id);
+            return (
+              <div
+                key={student.id}
+                className={`p-4 rounded-xl border-2 transition-all ${
+                  isPresent 
+                    ? 'border-green-300 bg-green-50' 
+                    : 'border-gray-200 bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg ${
+                    isPresent ? 'bg-green-500' : 'bg-gray-400'
+                  }`}>
+                    {student.name.charAt(0)}
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-gray-800">{student.name}</h4>
+                    <p className="text-sm text-gray-500">Grade: {student.grade}</p>
+                  </div>
+                  <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                    isPresent 
+                      ? 'bg-green-200 text-green-800' 
+                      : 'bg-red-200 text-red-800'
+                  }`}>
+                    {isPresent ? 'Present' : 'Absent'}
+                  </div>
+                </div>
+                {isPresent && isPresent.attendanceData && (
+                  <p className="mt-2 text-xs text-green-600">
+                    First seen: {new Date(isPresent.attendanceData.firstSeen).toLocaleTimeString()}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 };
