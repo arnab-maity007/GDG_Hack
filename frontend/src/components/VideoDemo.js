@@ -44,12 +44,37 @@ const VideoDemo = () => {
     stopCapture();
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
+    
     const v = videoRef.current;
+    if (!v) {
+      console.error('Video element not found');
+      return;
+    }
+
+    // Clean up previous video URL
+    if (v.src && v.src.startsWith('blob:')) {
+      URL.revokeObjectURL(v.src);
+    }
+    
+    const url = URL.createObjectURL(file);
     v.srcObject = null;
     v.src = url;
     v.controls = true;
-    v.play();
+    
+    // Wait for video to be ready before playing
+    v.onloadedmetadata = () => {
+      console.log('Video metadata loaded:', v.videoWidth, 'x', v.videoHeight);
+      v.play().catch(err => {
+        console.error('Video play error:', err);
+        alert('Error playing video: ' + err.message);
+      });
+    };
+    
+    v.onerror = (err) => {
+      console.error('Video load error:', err);
+      alert('Error loading video. Please try a different video format.');
+    };
+    
     setMode('upload');
   };
 
@@ -58,8 +83,41 @@ const VideoDemo = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       const v = videoRef.current;
+      if (!v) {
+        console.error('Video element not found');
+        return;
+      }
+      
+      // Clean up previous stream
+      if (v.srcObject) {
+        const tracks = v.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+      }
+      
+      // Clean up any uploaded video URL
+      if (v.src && v.src.startsWith('blob:')) {
+        URL.revokeObjectURL(v.src);
+      }
+      
       v.srcObject = stream;
-      v.play();
+      v.src = ''; // Clear src when using srcObject
+      v.controls = false;
+      
+      v.play().catch(err => {
+        console.error('Video play error:', err);
+        alert('Error playing camera stream: ' + err.message);
+      });
+      
+      // Wait for video to be ready
+      v.onloadedmetadata = () => {
+        console.log('Camera stream ready:', v.videoWidth, 'x', v.videoHeight);
+      };
+      
+      v.onerror = (err) => {
+        console.error('Video error:', err);
+        alert('Error with camera stream');
+      };
+      
       setMode('camera');
     } catch (err) {
       console.error('Camera start error:', err);
@@ -70,13 +128,29 @@ const VideoDemo = () => {
   const captureFrameBase64 = () => {
     const v = videoRef.current;
     const c = canvasRef.current;
-    if (!v || !c) return null;
+    if (!v || !c) {
+      console.warn('Video or canvas element not found');
+      return null;
+    }
+    
+    // Check if video is ready
+    if (!v.readyState || v.readyState < 2) {
+      console.warn('Video not ready, readyState:', v.readyState);
+      return null;
+    }
+    
+    // Check if video has dimensions
+    const width = v.videoWidth;
+    const height = v.videoHeight;
+    if (!width || !height || width === 0 || height === 0) {
+      console.warn('Video dimensions not available:', width, 'x', height);
+      return null;
+    }
+    
     const ctx = c.getContext('2d');
-    // match canvas size to video
-    const width = v.videoWidth || 320;
-    const height = v.videoHeight || 240;
     c.width = width;
     c.height = height;
+    
     try {
       ctx.drawImage(v, 0, 0, width, height);
       const dataUrl = c.toDataURL('image/jpeg', 0.8);
@@ -104,14 +178,30 @@ const VideoDemo = () => {
         body: JSON.stringify(payload)
       });
       const json = await resp.json();
+      
+      // Log the full response to console for debugging
+      console.log('=== Roboflow Proxy Response ===');
+      console.log('Full Response:', json);
+      console.log('Status:', resp.status);
+      console.log('Predictions:', json.predictions || 'No predictions found');
+      console.log('==============================');
+      
       if (json && json.predictions) {
         setPredictions(json.predictions);
       } else {
         setPredictions([]);
+        if (json.error) {
+          console.warn('Roboflow API Error:', json.error, json);
+        }
       }
       return json;
     } catch (err) {
       console.error('Roboflow proxy request error', err);
+      console.error('Error details:', err.message);
+      if (err.message.includes('fetch')) {
+        console.error('Network error - is the Roboflow proxy running on port 4000?');
+        alert('Cannot connect to Roboflow proxy. Please ensure it is running on port 4000.');
+      }
       return null;
     }
   };
@@ -159,16 +249,72 @@ const VideoDemo = () => {
 
   const startCapture = () => {
     if (running) return;
+    
+    const v = videoRef.current;
+    if (!v) {
+      alert('Video element not found!');
+      return;
+    }
+    
+    // Check if video is ready (either uploaded video or camera stream)
+    const hasVideo = v.src || v.srcObject;
+    if (!hasVideo) {
+      alert('Please upload a video or start camera first!');
+      return;
+    }
+    
+    // For camera stream, wait a bit for it to initialize
+    if (v.srcObject && !v.videoWidth) {
+      console.log('Waiting for camera stream to be ready...');
+      const checkReady = () => {
+        if (v.videoWidth > 0 && v.videoHeight > 0) {
+          console.log('Camera ready, starting capture');
+          startCaptureInterval();
+        } else {
+          setTimeout(checkReady, 100);
+        }
+      };
+      checkReady();
+      return;
+    }
+    
+    // For uploaded video, wait for metadata if needed
+    if (v.src && v.readyState < 2) {
+      console.log('Waiting for video metadata to load...');
+      v.onloadeddata = () => {
+        console.log('Video ready, starting capture');
+        startCaptureInterval();
+      };
+      return;
+    }
+    
+    // Start capture immediately if ready
+    startCaptureInterval();
+  };
+
+  const startCaptureInterval = () => {
+    if (running) return;
+    
     setRunning(true);
+    console.log('Starting capture interval...');
 
     const doCapture = async () => {
       const frame = captureFrameBase64();
-      if (!frame) return;
-      const res = await sendFrameToRoboflow(frame);
-      overlayDetections(frame, (res && res.predictions) || []);
+      if (!frame) {
+        console.warn('Frame capture failed, skipping...');
+        return;
+      }
+      try {
+        const res = await sendFrameToRoboflow(frame);
+        overlayDetections(frame, (res && res.predictions) || []);
+      } catch (err) {
+        console.error('Error in capture cycle:', err);
+      }
     };
 
+    // Do first capture immediately
     doCapture();
+    // Then set up interval
     captureTimerRef.current = setInterval(doCapture, intervalMs);
   };
 
@@ -229,6 +375,45 @@ const VideoDemo = () => {
           <div style={{ marginTop: 8 }}>
             <small>Predictions will be drawn on the canvas below the video. Check DevTools console for raw proxy/Roboflow responses.</small>
           </div>
+
+          {/* Display predictions count and details */}
+          {predictions && predictions.length > 0 && (
+            <div style={{ marginTop: 12, padding: 12, background: '#f0f0f0', borderRadius: 4, fontSize: '14px' }}>
+              <strong>Detections Found: {predictions.length}</strong>
+              <div style={{ marginTop: 8, maxHeight: 150, overflowY: 'auto' }}>
+                {predictions.map((pred, idx) => (
+                  <div key={idx} style={{ marginBottom: 4, padding: 4, background: 'white', borderRadius: 2 }}>
+                    <strong>#{idx + 1}:</strong> {pred.class || pred.label || pred?.classification?.predicted_class || 'Unknown'}
+                    {pred.confidence !== undefined && (
+                      <span> - Confidence: {(pred.confidence * 100).toFixed(1)}%</span>
+                    )}
+                    {pred.score !== undefined && (
+                      <span> - Score: {(pred.score * 100).toFixed(1)}%</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {running && predictions.length === 0 && (
+            <div style={{ marginTop: 12, padding: 8, background: '#fff3cd', borderRadius: 4, fontSize: '14px', color: '#856404' }}>
+              Processing frames... Check browser console (F12) for detailed responses.
+            </div>
+          )}
+
+          {/* Error display */}
+          {running && (
+            <div style={{ marginTop: 12, padding: 8, background: '#f8d7da', borderRadius: 4, fontSize: '14px', color: '#721c24' }}>
+              <strong>Tips:</strong>
+              <ul style={{ margin: '8px 0 0 20px', padding: 0 }}>
+                <li>Make sure Roboflow proxy is running on port 4000</li>
+                <li>Check console (F12) for detailed error messages</li>
+                <li>Verify video is playing before starting capture</li>
+                <li>If you see connection errors, restart the proxy: <code>cd backend && npm run proxy</code></li>
+              </ul>
+            </div>
+          )}
         </div>
       </div>
     </div>

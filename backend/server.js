@@ -7,7 +7,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.SERVER_PORT || process.env.PORT || 5000;
 
 // Temporary route (your team can add more later)
 app.get('/api/test', (req, res) => {
