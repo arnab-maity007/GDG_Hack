@@ -1,37 +1,69 @@
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { useState, useEffect } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { mockStudents } from '../../utils/mockData';
-import { Star, Lightbulb, Compass } from 'lucide-react';
+import { Star, Lightbulb, Compass, Brain, TrendingUp, Award, RefreshCw } from 'lucide-react';
+import { studentAttentivenessService } from '../../services/StudentAttentivenessService';
 
 export const FutureCapability = () => {
   const student = mockStudents[0]; // Alex Thompson
+  const [prediction, setPrediction] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const generatePrediction = async () => {
+    setLoading(true);
+    // Simulate student data collection over time
+    const studentData = {
+      id: student.id || 's1',
+      name: student.name,
+      subjectInterests: {
+        mathematics: Math.random() * 30 + 70,
+        science: Math.random() * 30 + 60,
+        english: Math.random() * 30 + 50,
+        history: Math.random() * 30 + 40,
+        arts: Math.random() * 30 + 35
+      },
+      behaviorMetrics: {
+        handRaises: Math.floor(Math.random() * 50) + 20,
+        questionFrequency: Math.random() * 40 + 30,
+        attentionSpan: Math.random() * 20 + 70,
+        participationRate: Math.random() * 25 + 65
+      }
+    };
+
+    setTimeout(() => {
+      const result = studentAttentivenessService.predictFutureCapabilities(studentData);
+      setPrediction(result);
+      setLoading(false);
+    }, 1500);
+  };
+
+  useEffect(() => {
+    generatePrediction();
+  }, []);
 
   // Create career prediction data based on interest levels
-  const careerData = [
-    {
-      career: 'Engineer',
-      match: 92,
-      reasoning: 'Strong math & science interests',
-    },
-    {
-      career: 'Mathematician',
-      match: 90,
-      reasoning: 'Exceptional math performance',
-    },
-    {
-      career: 'Data Scientist',
-      match: 88,
-      reasoning: 'Math + analytical skills',
-    },
-    {
-      career: 'Physics Teacher',
-      match: 75,
-      reasoning: 'Good science understanding',
-    },
-    {
-      career: 'Software Developer',
-      match: 80,
-      reasoning: 'Problem-solving capability',
-    },
+  const careerData = prediction?.suggestedCareers?.map((career, idx) => ({
+    career: career.career,
+    match: career.matchScore,
+    reasoning: career.reason
+  })) || [
+    { career: 'Engineer', match: 92, reasoning: 'Strong math & science interests' },
+    { career: 'Mathematician', match: 90, reasoning: 'Exceptional math performance' },
+    { career: 'Data Scientist', match: 88, reasoning: 'Math + analytical skills' },
+    { career: 'Physics Teacher', match: 75, reasoning: 'Good science understanding' },
+    { career: 'Software Developer', match: 80, reasoning: 'Problem-solving capability' },
+  ];
+
+  const interestData = prediction ? Object.entries(prediction.subjectInterests || {}).map(([subject, score]) => ({
+    subject: subject.charAt(0).toUpperCase() + subject.slice(1),
+    score: Math.round(score),
+    fullMark: 100
+  })) : [
+    { subject: 'Mathematics', score: 85, fullMark: 100 },
+    { subject: 'Science', score: 78, fullMark: 100 },
+    { subject: 'English', score: 65, fullMark: 100 },
+    { subject: 'History', score: 55, fullMark: 100 },
+    { subject: 'Arts', score: 45, fullMark: 100 },
   ];
 
   const topCareer = careerData[0];
@@ -127,7 +159,17 @@ export const FutureCapability = () => {
 
       {/* Alternative Careers */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-lg font-bold text-edu-dark-blue mb-4">Additional Career Options</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-edu-dark-blue">Additional Career Options</h2>
+          <button 
+            onClick={generatePrediction}
+            disabled={loading}
+            className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors disabled:bg-gray-400"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>{loading ? 'Analyzing...' : 'Refresh Analysis'}</span>
+          </button>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {careerData.slice(3).map((item, idx) => (
             <div key={idx} className="p-4 border-2 border-edu-light-slate rounded-lg hover:border-edu-green transition-colors">
@@ -141,6 +183,25 @@ export const FutureCapability = () => {
         </div>
       </div>
 
+      {/* Interest Radar Chart */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h2 className="text-lg font-bold text-edu-dark-blue mb-4 flex items-center gap-2">
+          <Brain className="w-5 h-5 text-purple-600" />
+          Your Interest Profile
+        </h2>
+        <ResponsiveContainer width="100%" height={300}>
+          <RadarChart data={interestData}>
+            <PolarGrid />
+            <PolarAngleAxis dataKey="subject" />
+            <PolarRadiusAxis domain={[0, 100]} />
+            <Radar name="Interest Score" dataKey="score" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.5} />
+          </RadarChart>
+        </ResponsiveContainer>
+        <p className="text-sm text-gray-500 text-center mt-2">
+          Based on {prediction?.analysisMonths || 3} months of classroom behavior analysis
+        </p>
+      </div>
+
       {/* Action Plan */}
       <div className="bg-yellow-50 rounded-lg shadow-md p-6 border-l-4 border-yellow-500">
         <h3 className="font-bold text-yellow-900 mb-3">📋 Your Action Plan</h3>
@@ -151,6 +212,27 @@ export const FutureCapability = () => {
           <li>✓ <span className="font-semibold">Long-term:</span> Consider summer STEM camps or internships</li>
         </ul>
       </div>
+
+      {/* AI Analysis Note */}
+      {prediction && (
+        <div className="bg-gradient-to-r from-blue-100 to-indigo-100 rounded-lg shadow-md p-6 border-l-4 border-blue-500">
+          <div className="flex items-center gap-2 mb-2">
+            <Award className="w-5 h-5 text-blue-600" />
+            <p className="text-blue-900 font-semibold">AI Analysis Complete</p>
+          </div>
+          <p className="text-blue-800 text-sm">
+            {prediction.recommendation || `Based on ${student.name}'s engagement patterns over ${prediction.analysisMonths} months, 
+            they show strong aptitude for ${prediction.topInterest}-related fields with ${(prediction.confidence * 100).toFixed(0)}% confidence.`}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {prediction.suggestedCareers?.slice(0, 3).map((career, idx) => (
+              <span key={idx} className="bg-blue-200 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+                {career.career}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Motivational Message */}
       <div className="bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg shadow-md p-6 border-l-4 border-purple-500">

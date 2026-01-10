@@ -6,5 +6,15 @@ export default defineConfig({
   server: {
     port: 5173,
     open: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+      '/roboflow': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+      }
+    }
   },
 })

@@ -4,6 +4,8 @@ import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Sidebar } from './components/Sidebar';
 import { LoginPage } from './pages/LoginPage';
+import { MainLanding } from './pages/MainLanding';
+import { ClassroomMonitor } from './pages/ClassroomMonitor';
 
 // Admin Pages
 import { AdminDashboard } from './pages/admin/AdminDashboard';
@@ -45,6 +47,12 @@ function App() {
     <Router>
       <AuthProvider>
         <Routes>
+          {/* Main Landing Page */}
+          <Route path="/" element={<MainLanding />} />
+          
+          {/* Classroom Monitor - Integrated from frontend app */}
+          <Route path="/classroom" element={<ClassroomMonitor />} />
+          
           {/* Login Route */}
           <Route path="/login" element={<LoginPage />} />
 
@@ -101,9 +109,6 @@ function App() {
               </ProtectedRoute>
             }
           />
-
-          {/* Redirect root to login */}
-          <Route path="/" element={<LoginPage />} />
         </Routes>
       </AuthProvider>
     </Router>

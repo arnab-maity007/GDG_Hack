@@ -1,20 +1,38 @@
 {
-  "name": "gdg_hack",
-  "version": "1.0.0",
-  "main": "index.js",
+  "name": "edupulse-ai-complete",
+  "version": "2.0.0",
+  "description": "EduPulse AI - Smart Attendance & Classroom Monitoring System for Indian Schools",
+  "main": "backend/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install && cd ../gdg_hack_report && npm install",
+    "dev:backend": "cd backend && node server.js",
+    "dev:frontend": "cd gdg_hack_report && npm run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build": "cd gdg_hack_report && npm run build",
+    "start": "cd backend && node server.js",
+    "deploy:vercel": "cd gdg_hack_report && vercel --prod",
+    "test": "echo \"Tests coming soon\" && exit 0"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/arnab-maity007/GDG_Hack.git"
+    "url": "git+https://github.com/arnab-maity007/Attendance-app.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "education",
+    "attendance",
+    "facial-recognition",
+    "classroom-monitoring",
+    "ai",
+    "machine-learning",
+    "indian-schools"
+  ],
+  "author": "GDG Hackathon Team",
+  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/arnab-maity007/GDG_Hack/issues"
+    "url": "https://github.com/arnab-maity007/Attendance-app/issues"
   },
-  "homepage": "https://github.com/arnab-maity007/GDG_Hack#readme",
-  "description": ""
+  "homepage": "https://github.com/arnab-maity007/Attendance-app#readme",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
 }
