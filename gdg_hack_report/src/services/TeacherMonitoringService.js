@@ -478,11 +478,20 @@ class TeacherMonitoringService {
     return this.generateDetailedReport();
   }
 
-  // Analyze a speech segment using Gemini AI - ACCURATE ANALYSIS
-  analyzeSegment(text) {
+  // Analyze a speech segment using Gemini AI - CONTEXT-AWARE ANALYSIS
+  async analyzeSegment(text) {
     const now = new Date();
     const segmentDuration = this.lastSegmentTime ? (now - this.lastSegmentTime) / 1000 : 3;
     this.lastSegmentTime = now;
+    
+    // Handle pauses/silence - this is NORMAL teaching behavior
+    const trimmedText = text.trim();
+    if (!trimmedText || trimmedText.length < 3) {
+      // Silence or very short - teacher is pausing (thinking, writing on board, etc.)
+      // Don't mark as off-topic, just skip analysis
+      console.log('⏸️ Teacher pause detected - normal teaching behavior');
+      return null;
+    }
     
     // Tokenize and clean words
     const words = text.toLowerCase()
@@ -517,16 +526,34 @@ class TeacherMonitoringService {
       this.teachingMetrics.clarity = Math.min(100, this.teachingMetrics.clarity + 3);
     }
 
-    // Add to analysis buffer for batched AI analysis
+    // Add to analysis buffer for context
     this.analysisBuffer += ' ' + text;
     
-    // Use STRICT local analysis first for immediate feedback
-    const strictAnalysis = this.strictLocalAnalysis(text);
-    const isOnTopic = strictAnalysis.isOnTopic;
-    const matchedKeywords = strictAnalysis.matchedKeywords;
+    // Use Gemini AI as PRIMARY analyzer for full context understanding
+    let isOnTopic = true;
+    let matchedKeywords = [];
+    let reason = '';
+    let confidence = 0.7;
     
-    // Calculate segment score based on strict analysis
-    let segmentScore = isOnTopic ? 70 + (strictAnalysis.confidence * 30) : 30;
+    // Analyze with Gemini AI for accurate context understanding
+    const aiResult = await this.analyzeWithGeminiAI(text);
+    
+    if (aiResult) {
+      isOnTopic = aiResult.isOnTopic;
+      matchedKeywords = aiResult.matchedConcepts || aiResult.matchedKeywords || [];
+      reason = aiResult.reason || '';
+      confidence = aiResult.confidence || 0.7;
+    } else {
+      // Fallback to local analysis only if AI fails
+      const localAnalysis = this.quickLocalAnalysis(text);
+      isOnTopic = localAnalysis.isOnTopic;
+      matchedKeywords = localAnalysis.matchedKeywords;
+      reason = localAnalysis.reason;
+      confidence = localAnalysis.confidence;
+    }
+    
+    // Calculate segment score
+    let segmentScore = isOnTopic ? 70 + (confidence * 30) : 30;
     segmentScore += hasQuestion ? 5 : 0;
     segmentScore += hasExample ? 5 : 0;
     segmentScore = Math.min(100, Math.max(0, segmentScore));
@@ -550,7 +577,8 @@ class TeacherMonitoringService {
       hasExample,
       hasClarity,
       duration: segmentDuration,
-      reason: strictAnalysis.reason
+      reason: reason,
+      analyzedByAI: !!aiResult
     };
     
     this.sessionData.push(segmentAnalysis);
@@ -565,12 +593,6 @@ class TeacherMonitoringService {
     // Update live status
     this.liveStatus = isOnTopic ? 'on-topic' : 'off-topic';
     
-    // Trigger Gemini AI analysis every 5 seconds for accuracy
-    const timeSinceLastAnalysis = now.getTime() - this.lastAnalysisTime;
-    if (timeSinceLastAnalysis > 5000 && this.analysisBuffer.trim().length > 30) {
-      this.runAIAnalysis();
-    }
-    
     // Trigger analysis update
     if (this.onAnalysisUpdate) {
       this.onAnalysisUpdate(this.getDetailedAnalysis());
@@ -579,262 +601,111 @@ class TeacherMonitoringService {
     return segmentAnalysis;
   }
 
-  // STRICT local analysis - much more accurate
-  strictLocalAnalysis(text) {
+  // Analyze with Gemini AI - PRIMARY method for context understanding
+  async analyzeWithGeminiAI(text) {
+    if (!text || text.trim().length < 5) {
+      return null;
+    }
+    
+    try {
+      // Use Gemini API directly for real-time analysis
+      const apiKey = 'AIzaSyBvLZ8yyM0tyW0t4LvVxE-C7V0u9Ghfqew';
+      const apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+      
+      const prompt = `You are a classroom teaching assistant. Analyze if this speech is related to teaching "${this.currentTopic}" in ${this.currentSubject}.
+
+SPEECH: "${text}"
+EXPECTED TOPIC: ${this.currentTopic}
+SUBJECT: ${this.currentSubject}
+
+IMPORTANT RULES:
+1. Understand the CONTEXT and MEANING, not just keywords
+2. A teacher explaining concepts in simple words is ON-TOPIC even without technical terms
+3. Examples, analogies, real-world connections to the topic = ON-TOPIC
+4. Questions to students about the topic = ON-TOPIC  
+5. Transition phrases like "now let's look at", "moving on" = ON-TOPIC
+6. General greetings, personal stories, unrelated topics = OFF-TOPIC
+
+Respond with JSON only (no markdown):
+{"isOnTopic": true/false, "confidence": 0.0-1.0, "matchedConcepts": ["concept1"], "reason": "brief explanation"}`;
+
+      const response = await fetch(`${apiUrl}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 150
+          }
+        })
+      });
+
+      if (!response.ok) {
+        console.warn('Gemini API error:', response.status);
+        return null;
+      }
+
+      const data = await response.json();
+      const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
+      // Parse JSON response
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const result = JSON.parse(jsonMatch[0]);
+        console.log('🤖 AI Analysis:', result.isOnTopic ? '✅ ON-TOPIC' : '❌ OFF-TOPIC', '-', result.reason);
+        return result;
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn('AI analysis error:', error.message);
+      return null;
+    }
+  }
+
+  // Quick local analysis - FALLBACK only when AI fails
+  quickLocalAnalysis(text) {
     const textLower = text.toLowerCase();
     const words = textLower.split(/\s+/).map(w => w.replace(/[^\w]/g, ''));
     
-    // Get strict keywords for the topic
-    const strictKeywords = this.getStrictTopicKeywords();
-    
+    // Basic topic word check
+    const topicWords = this.currentTopic.toLowerCase().split(/\s+/);
     let matchCount = 0;
     const matchedKeywords = [];
     
-    // Check for exact keyword matches only
-    strictKeywords.forEach(keyword => {
-      if (keyword.includes(' ')) {
-        // Multi-word phrase
-        if (textLower.includes(keyword)) {
-          matchCount += 2;
-          matchedKeywords.push(keyword);
-        }
-      } else {
-        // Single word - exact match only
-        if (words.includes(keyword)) {
-          matchCount++;
-          matchedKeywords.push(keyword);
-        }
+    topicWords.forEach(word => {
+      if (word.length > 2 && textLower.includes(word)) {
+        matchCount++;
+        matchedKeywords.push(word);
       }
     });
     
-    // Check for off-topic indicators
-    const offTopicPhrases = [
-      'good morning', 'good afternoon', 'good evening', 'hello everyone',
-      'how are you', 'did you eat', 'yesterday', 'tomorrow', 'weekend',
-      'movie', 'game', 'cricket', 'football', 'holiday', 'vacation',
-      'homework', 'assignment', 'marks', 'attendance', 'roll call'
-    ];
+    // Check for common teaching patterns
+    const teachingPatterns = ['let me', 'we can', 'you see', 'this means', 'for example', 
+      'remember', 'notice', 'look at', 'think about', 'consider', 'when we', 'if we'];
+    const hasTeachingPattern = teachingPatterns.some(p => textLower.includes(p));
     
-    const isOffTopic = offTopicPhrases.some(phrase => textLower.includes(phrase));
+    // Be lenient - assume on-topic unless clearly off-topic
+    const offTopicIndicators = ['weather', 'lunch', 'movie', 'game', 'cricket', 
+      'football', 'music', 'party', 'weekend', 'holiday'];
+    const hasOffTopic = offTopicIndicators.some(w => textLower.includes(w));
     
-    // Short greetings/transitions are neutral
-    if (words.length <= 4) {
-      return {
-        isOnTopic: false, // Don't count short phrases
-        confidence: 0,
-        matchedKeywords: [],
-        reason: 'Too short to determine'
-      };
-    }
+    const isOnTopic = !hasOffTopic && (matchCount > 0 || hasTeachingPattern || words.length < 5);
     
-    // Need at least 2 keyword matches AND no off-topic content
-    const isOnTopic = matchCount >= 2 && !isOffTopic;
-    const confidence = Math.min(1, matchCount / 5);
-    
-    let reason = '';
-    if (isOnTopic) {
-      reason = `On topic: ${matchedKeywords.slice(0, 3).join(', ')}`;
-    } else if (isOffTopic) {
-      reason = 'Off-topic conversation detected';
-    } else if (matchCount === 0) {
-      reason = 'No topic keywords found';
-    } else {
-      reason = `Weak relevance (${matchCount} keywords)`;
-    }
-    
-    return { isOnTopic, confidence, matchedKeywords, reason };
+    return {
+      isOnTopic,
+      confidence: matchCount > 0 ? 0.7 : 0.5,
+      matchedKeywords,
+      reason: isOnTopic 
+        ? (matchCount > 0 ? `Contains: ${matchedKeywords.join(', ')}` : 'Teaching context detected')
+        : 'Off-topic content detected'
+    };
   }
 
-  // Get strict keywords for current topic - COMPREHENSIVE LIST
-  getStrictTopicKeywords() {
-    const topicKeywords = {
-      // MATHEMATICS TOPICS
-      'quadratic equations': [
-        // Core terms
-        'quadratic', 'equation', 'equations', 'squared', 'square', 'x squared', 'x square',
-        'ax squared', 'ax2', 'bx', 'cx', 'polynomial', 'degree', 'second degree',
-        // Methods & concepts
-        'factorization', 'factorisation', 'factoring', 'factor', 'factors', 'roots', 'root',
-        'discriminant', 'quadratic formula', 'formula', 'parabola', 'vertex', 'vertices',
-        'coefficient', 'coefficients', 'variable', 'variables', 'constant', 'term', 'terms',
-        // Solving
-        'completing the square', 'standard form', 'general form', 'find x', 'solve', 'solving',
-        'solve for x', 'value of x', 'solution', 'solutions', 'answer', 'calculate',
-        // Roots related
-        'roots of equation', 'sum of roots', 'product of roots', 'nature of roots',
-        'real roots', 'imaginary roots', 'complex roots', 'equal roots', 'distinct roots',
-        'two solutions', 'two roots', 'double root', 'repeated root',
-        // Formula terms
-        'plus or minus', 'plus minus', 'square root', 'sqrt', 'b squared', 'b square',
-        'four ac', '4ac', 'minus b', 'negative b', '2a', 'divided by',
-        // Graph related
-        'graph', 'curve', 'u shape', 'opening', 'upward', 'downward', 'axis of symmetry',
-        'maximum', 'minimum', 'turning point', 'intercept', 'x intercept', 'y intercept',
-        // Common words in teaching
-        'substitute', 'substitution', 'simplify', 'expand', 'rearrange', 'compare',
-        'positive', 'negative', 'zero', 'equal', 'equals', 'greater', 'less'
-      ],
-      'linear equations': [
-        'linear', 'line', 'straight', 'straight line', 'slope', 'gradient', 'steepness',
-        'intercept', 'y intercept', 'x intercept', 'mx plus b', 'y equals mx', 'y equals',
-        'coordinate', 'coordinates', 'point', 'points', 'origin', 'axes', 'axis',
-        'parallel', 'perpendicular', 'horizontal', 'vertical', 'rise', 'run',
-        'rise over run', 'rate of change', 'constant', 'variable', 'first degree',
-        'graph', 'plot', 'plotting', 'table', 'ordered pair', 'x value', 'y value',
-        'slope intercept', 'point slope', 'standard form', 'equation of line',
-        'find the equation', 'find slope', 'simultaneous', 'system of equations'
-      ],
-      'trigonometry': [
-        'sine', 'cosine', 'tangent', 'sin', 'cos', 'tan', 'secant', 'cosecant', 'cotangent',
-        'sec', 'csc', 'cot', 'theta', 'angle', 'angles', 'degree', 'degrees', 'radian', 'radians',
-        'triangle', 'right triangle', 'right angle', 'hypotenuse', 'opposite', 'adjacent',
-        'soh cah toa', 'ratio', 'ratios', 'trigonometric', 'trig', 'identity', 'identities',
-        'pythagoras', 'pythagorean', 'unit circle', 'reference angle', 'quadrant',
-        'amplitude', 'period', 'frequency', 'phase', 'wave', 'oscillation',
-        'inverse', 'arc', 'arcsin', 'arccos', 'arctan', 'elevation', 'depression'
-      ],
-      'algebra': [
-        'variable', 'variables', 'expression', 'expressions', 'equation', 'equations',
-        'polynomial', 'polynomials', 'monomial', 'binomial', 'trinomial', 'term', 'terms',
-        'coefficient', 'constant', 'like terms', 'unlike terms', 'degree', 'exponent',
-        'power', 'base', 'factor', 'factors', 'factoring', 'factorization', 'expand',
-        'simplify', 'simplifying', 'solve', 'solving', 'substitute', 'substitution',
-        'inequality', 'inequalities', 'greater than', 'less than', 'equal to',
-        'algebraic', 'formula', 'identity', 'evaluate', 'value', 'unknown'
-      ],
-      'geometry': [
-        'angle', 'angles', 'triangle', 'triangles', 'circle', 'circles', 'square', 'squares',
-        'rectangle', 'rectangles', 'polygon', 'polygons', 'line', 'lines', 'point', 'points',
-        'area', 'perimeter', 'volume', 'surface area', 'circumference', 'diameter', 'radius',
-        'congruent', 'similar', 'parallel', 'perpendicular', 'vertex', 'vertices', 'edge',
-        'face', 'side', 'sides', 'base', 'height', 'length', 'width', 'diagonal',
-        'acute', 'obtuse', 'right angle', 'straight angle', 'reflex', 'complementary', 'supplementary',
-        'isosceles', 'equilateral', 'scalene', 'quadrilateral', 'pentagon', 'hexagon'
-      ],
-      'calculus': [
-        'derivative', 'derivatives', 'differentiation', 'differentiate', 'integral', 'integration',
-        'integrate', 'limit', 'limits', 'function', 'functions', 'continuous', 'continuity',
-        'slope', 'tangent', 'rate of change', 'instantaneous', 'average', 'curve',
-        'maximum', 'minimum', 'critical point', 'inflection', 'concave', 'convex',
-        'chain rule', 'product rule', 'quotient rule', 'power rule', 'antiderivative',
-        'area under curve', 'definite', 'indefinite', 'bounds', 'fundamental theorem'
-      ],
-      'statistics': [
-        'mean', 'median', 'mode', 'average', 'range', 'variance', 'standard deviation',
-        'data', 'dataset', 'frequency', 'distribution', 'normal', 'bell curve',
-        'probability', 'chance', 'likelihood', 'sample', 'population', 'random',
-        'hypothesis', 'correlation', 'regression', 'scatter', 'outlier', 'quartile',
-        'percentile', 'histogram', 'bar graph', 'pie chart', 'survey', 'bias'
-      ],
-
-      // SCIENCE TOPICS
-      'photosynthesis': [
-        'photosynthesis', 'chlorophyll', 'chloroplast', 'sunlight', 'light', 'sun',
-        'carbon dioxide', 'co2', 'oxygen', 'o2', 'glucose', 'sugar', 'starch',
-        'plant', 'plants', 'leaf', 'leaves', 'green', 'pigment', 'stomata', 'stoma',
-        'water', 'h2o', 'energy', 'food', 'absorb', 'release', 'produce',
-        'light reaction', 'dark reaction', 'calvin cycle', 'atp', 'nadph',
-        'autotroph', 'producer', 'equation', 'process', 'convert', 'conversion'
-      ],
-      'newton': [
-        'newton', 'force', 'forces', 'mass', 'acceleration', 'velocity', 'speed',
-        'motion', 'movement', 'inertia', 'momentum', 'friction', 'gravity', 'weight',
-        'action', 'reaction', 'equal', 'opposite', 'first law', 'second law', 'third law',
-        'f equals ma', 'f ma', 'net force', 'unbalanced', 'balanced', 'equilibrium',
-        'push', 'pull', 'newton meter', 'kilogram', 'kg', 'acceleration due to gravity',
-        'free fall', 'projectile', 'rest', 'uniform', 'non uniform'
-      ],
-      'atoms': [
-        'atom', 'atoms', 'atomic', 'electron', 'electrons', 'proton', 'protons',
-        'neutron', 'neutrons', 'nucleus', 'shell', 'orbit', 'orbital', 'energy level',
-        'element', 'elements', 'periodic table', 'atomic number', 'mass number',
-        'isotope', 'isotopes', 'ion', 'ions', 'charge', 'positive', 'negative',
-        'valence', 'valency', 'bond', 'bonding', 'molecule', 'molecules', 'compound',
-        'subatomic', 'particle', 'particles', 'structure', 'model', 'bohr'
-      ],
-      'chemical reactions': [
-        'reaction', 'reactions', 'chemical', 'chemistry', 'reactant', 'reactants',
-        'product', 'products', 'equation', 'balance', 'balanced', 'catalyst',
-        'acid', 'base', 'salt', 'neutral', 'ph', 'indicator', 'litmus',
-        'oxidation', 'reduction', 'redox', 'exothermic', 'endothermic', 'energy',
-        'combustion', 'burning', 'synthesis', 'decomposition', 'displacement',
-        'precipitate', 'gas', 'fizz', 'bubble', 'color change', 'temperature'
-      ],
-      'electricity': [
-        'electric', 'electricity', 'current', 'voltage', 'resistance', 'ohm',
-        'circuit', 'circuits', 'conductor', 'insulator', 'wire', 'wires',
-        'battery', 'cell', 'switch', 'bulb', 'led', 'ampere', 'amp', 'volt', 'watt',
-        'series', 'parallel', 'electron', 'flow', 'charge', 'positive', 'negative',
-        'ohms law', 'v equals ir', 'power', 'energy', 'joule', 'kilowatt',
-        'fuse', 'ground', 'earthing', 'short circuit', 'open circuit'
-      ],
-      'biology': [
-        'cell', 'cells', 'organism', 'living', 'life', 'biology', 'biological',
-        'tissue', 'organ', 'system', 'body', 'function', 'structure',
-        'dna', 'gene', 'genes', 'chromosome', 'heredity', 'genetics', 'trait',
-        'species', 'evolution', 'adapt', 'adaptation', 'natural selection',
-        'ecosystem', 'habitat', 'environment', 'food chain', 'predator', 'prey'
-      ],
-
-      // ENGLISH/LANGUAGE TOPICS  
-      'grammar': [
-        'grammar', 'noun', 'nouns', 'verb', 'verbs', 'adjective', 'adjectives',
-        'adverb', 'adverbs', 'pronoun', 'pronouns', 'preposition', 'prepositions',
-        'conjunction', 'conjunctions', 'article', 'articles', 'interjection',
-        'sentence', 'sentences', 'clause', 'clauses', 'phrase', 'phrases',
-        'subject', 'predicate', 'object', 'tense', 'tenses', 'past', 'present', 'future',
-        'singular', 'plural', 'punctuation', 'comma', 'period', 'question mark',
-        'active voice', 'passive voice', 'direct', 'indirect', 'speech'
-      ],
-      'literature': [
-        'literature', 'story', 'stories', 'poem', 'poems', 'poetry', 'novel', 'novels',
-        'character', 'characters', 'plot', 'setting', 'theme', 'themes', 'conflict',
-        'protagonist', 'antagonist', 'narrator', 'narration', 'point of view',
-        'metaphor', 'simile', 'imagery', 'symbolism', 'symbol', 'foreshadowing',
-        'irony', 'personification', 'alliteration', 'rhyme', 'rhythm', 'stanza',
-        'author', 'writer', 'reader', 'audience', 'tone', 'mood', 'style'
-      ],
-
-      // HISTORY TOPICS
-      'independence': [
-        'independence', 'freedom', 'liberty', 'struggle', 'movement', 'revolution',
-        'british', 'colonial', 'colony', 'rule', 'raj', 'empire',
-        'gandhi', 'nehru', 'patel', 'bose', 'azad', 'tilak', 'gokhale',
-        'salt march', 'dandi', 'quit india', 'non cooperation', 'civil disobedience',
-        'satyagraha', 'ahimsa', 'swadeshi', 'boycott', 'partition', '1947',
-        'congress', 'league', 'constituent assembly', 'constitution'
-      ],
-      'world wars': [
-        'war', 'wars', 'world war', 'battle', 'battles', 'military', 'army', 'navy',
-        'soldier', 'soldiers', 'weapon', 'weapons', 'attack', 'defense', 'defence',
-        'alliance', 'allies', 'axis', 'treaty', 'peace', 'victory', 'defeat',
-        'hitler', 'nazi', 'holocaust', 'atomic', 'nuclear', 'hiroshima', 'nagasaki',
-        'trench', 'warfare', 'front', 'casualties', 'surrender', 'occupation'
-      ],
-
-      // COMPUTER SCIENCE
-      'programming': [
-        'program', 'programming', 'code', 'coding', 'computer', 'software',
-        'variable', 'variables', 'function', 'functions', 'loop', 'loops',
-        'condition', 'conditional', 'if', 'else', 'while', 'for', 'array', 'arrays',
-        'string', 'integer', 'boolean', 'data type', 'input', 'output', 'print',
-        'algorithm', 'logic', 'debug', 'error', 'bug', 'compile', 'run', 'execute',
-        'syntax', 'statement', 'expression', 'operator', 'class', 'object'
-      ]
-    };
-    
-    // Find matching keywords - check for partial matches too
-    const topicLower = this.currentTopic.toLowerCase();
-    for (const [topic, keywords] of Object.entries(topicKeywords)) {
-      if (topicLower.includes(topic) || topic.includes(topicLower) || 
-          topic.split(' ').some(word => topicLower.includes(word))) {
-        return keywords;
-      }
-    }
-    
-    // Fallback - generate from topic name and add common teaching words
-    const topicWords = this.currentTopic.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-    return [...topicWords, 'example', 'problem', 'solution', 'answer', 'find', 'calculate', 'solve'];
+  // STRICT local analysis - KEPT for backwards compatibility but simplified
+  strictLocalAnalysis(text) {
+    return this.quickLocalAnalysis(text);
   }
 
   // Run Gemini AI analysis for better accuracy
