@@ -192,6 +192,7 @@ const TeacherMonitoringPanel = ({ topic, subject, onReportUpdate, teacherInfo })
   const [liveStatus, setLiveStatus] = useState(null);
   const [mode, setMode] = useState('waiting');
   const [error, setError] = useState(null);
+  const [manualInput, setManualInput] = useState('');
   const transcriptRef = useRef(null);
 
   const startMonitoring = () => {
@@ -221,6 +222,10 @@ const TeacherMonitoringPanel = ({ topic, subject, onReportUpdate, teacherInfo })
       onError: (err) => {
         console.error('Speech error:', err);
         setError(err);
+        // Auto-switch to simulation on network error
+        if (err.includes('Network') || err.includes('network')) {
+          setMode('simulation');
+        }
       }
     });
     
@@ -228,6 +233,22 @@ const TeacherMonitoringPanel = ({ topic, subject, onReportUpdate, teacherInfo })
     setIsMonitoring(true);
   };
 
+  // Handle manual text input for simulation/demo mode
+  const handleManualSubmit = (e) => {
+    e.preventDefault();
+    if (!manualInput.trim() || !isMonitoring) return;
+    
+    // Manually analyze the input text
+    const analysis = teacherMonitoringService.analyzeSegment(manualInput);
+    setTranscript(prev => prev + manualInput + '. ');
+    setLiveStatus({
+      status: analysis.isOnTopic ? 'on-topic' : 'off-topic',
+      text: manualInput,
+      matchedKeywords: analysis.matchedKeywords || [],
+      reason: analysis.reason || ''
+    });
+    setManualInput('');
+  };
   const stopMonitoring = () => {
     const finalReport = teacherMonitoringService.stopMonitoring();
     setReport(finalReport);
@@ -371,10 +392,34 @@ const TeacherMonitoringPanel = ({ topic, subject, onReportUpdate, teacherInfo })
                 <span className="text-gray-400 italic"> {interimText}</span>
               )}
               {!transcript && !interimText && (
-                <span className="text-gray-500 italic">Speak into the microphone...</span>
+                <span className="text-gray-500 italic">
+                  {mode === 'simulation' ? 'Type what the teacher is saying below...' : 'Speak into the microphone...'}
+                </span>
               )}
             </div>
           </div>
+
+          {/* Manual Text Input for Demo/Fallback Mode */}
+          <form onSubmit={handleManualSubmit} className="mb-3">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={manualInput}
+                onChange={(e) => setManualInput(e.target.value)}
+                placeholder="Type what teacher is saying (for demo)..."
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700"
+              >
+                Analyze
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              💡 Type sample speech to test the analysis (e.g., "The quadratic equation has two roots")
+            </p>
+          </form>
         </div>
       )}
       

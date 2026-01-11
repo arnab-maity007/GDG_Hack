@@ -243,7 +243,7 @@ class TeacherMonitoringService {
       }
     };
     
-    // Handle errors
+    // Handle errors - with automatic fallback to simulation
     this.recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
       
@@ -261,6 +261,13 @@ class TeacherMonitoringService {
             try { this.recognition.start(); } catch (e) {}
           }, 100);
         }
+      } else if (event.error === 'network') {
+        // Network error - fallback to simulation mode automatically
+        console.log('Network error detected, switching to simulation mode...');
+        this.recognition = null;
+        this.mode = 'simulation';
+        this.startSimulation();
+        if (this.onError) this.onError('Network unavailable - switched to demo mode. Type or speak to simulate.');
       } else {
         if (this.onError) this.onError(`Speech error: ${event.error}`);
       }
@@ -268,12 +275,14 @@ class TeacherMonitoringService {
     
     // Auto-restart when recognition ends
     this.recognition.onend = () => {
-      if (this.isListening) {
+      if (this.isListening && this.mode === 'live') {
         setTimeout(() => {
           try {
             this.recognition.start();
           } catch (e) {
-            console.log('Could not restart recognition:', e);
+            console.log('Could not restart recognition, switching to simulation:', e);
+            this.mode = 'simulation';
+            this.startSimulation();
           }
         }, 100);
       }
