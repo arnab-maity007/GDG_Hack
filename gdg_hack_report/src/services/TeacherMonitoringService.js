@@ -196,16 +196,28 @@ class TeacherMonitoringService {
       return { success: false, reason: 'not-supported' };
     }
 
+    // Reset any existing recognition
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch (e) {}
+    }
+
     this.recognition = new SpeechRecognition();
     
     // Configure for continuous, real-time recognition
     this.recognition.continuous = true;
     this.recognition.interimResults = true;
-    this.recognition.lang = 'en-IN'; // Indian English
+    this.recognition.lang = 'en-US'; // Changed to en-US for better compatibility
     this.recognition.maxAlternatives = 1;
+    
+    // Track retry attempts
+    this.retryCount = 0;
+    this.maxRetries = 3;
     
     // Handle speech results
     this.recognition.onresult = (event) => {
+      this.retryCount = 0; // Reset retry count on successful result
       let interimTranscript = '';
       let finalTranscript = '';
       
@@ -243,31 +255,63 @@ class TeacherMonitoringService {
       }
     };
     
-    // Handle errors - with automatic fallback to simulation
+    // Handle errors - with retry logic
     this.recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
       
       if (event.error === 'not-allowed') {
-        if (this.onError) this.onError('Microphone access denied. Please allow microphone access.');
+        if (this.onError) this.onError('Microphone access denied. Please allow microphone access and refresh.');
       } else if (event.error === 'no-speech') {
         // Restart recognition if no speech detected
         if (this.isListening) {
-          try { this.recognition.start(); } catch (e) {}
+          setTimeout(() => {
+            try { this.recognition.start(); } catch (e) {}
+          }, 100);
         }
       } else if (event.error === 'aborted') {
         // Restart on abort
         if (this.isListening) {
           setTimeout(() => {
             try { this.recognition.start(); } catch (e) {}
-          }, 100);
+          }, 200);
         }
       } else if (event.error === 'network') {
-        // Network error - fallback to simulation mode automatically
-        console.log('Network error detected, switching to simulation mode...');
-        this.recognition = null;
-        this.mode = 'simulation';
-        this.startSimulation();
-        if (this.onError) this.onError('Network unavailable - switched to demo mode. Type or speak to simulate.');
+        // Network error - retry a few times before falling back
+        this.retryCount = (this.retryCount || 0) + 1;
+        console.log(`Network error, retry attempt ${this.retryCount}/${this.maxRetries}`);
+        
+        if (this.retryCount < this.maxRetries && this.isListening) {
+          setTimeout(() => {
+            try {
+              this.recognition.stop();
+              setTimeout(() => {
+                try { this.recognition.start(); } catch (e) {}
+              }, 500);
+            } catch (e) {
+              this.startSimulation();
+            }
+          }, 1000);
+        } else {
+          // After retries, switch to simulation
+          console.log('Max retries reached, switching to simulation mode...');
+          this.mode = 'simulation';
+          this.startSimulation();
+          if (this.onError) this.onError('Network unavailable - switched to demo mode. Type or speak to simulate.');
+        }
+      } else if (event.error === 'audio-capture') {
+        if (this.onError) this.onError('No microphone found. Please connect a microphone and refresh.');
+      } else if (event.error === 'service-not-allowed') {
+        // Try again - sometimes this is temporary
+        if (this.isListening && this.retryCount < 2) {
+          this.retryCount++;
+          setTimeout(() => {
+            try { this.recognition.start(); } catch (e) {}
+          }, 500);
+        } else {
+          this.mode = 'simulation';
+          this.startSimulation();
+          if (this.onError) this.onError('Speech service blocked - using demo mode.');
+        }
       } else {
         if (this.onError) this.onError(`Speech error: ${event.error}`);
       }
@@ -316,6 +360,7 @@ class TeacherMonitoringService {
     this.offTopicTime = 0;
     this.liveStatus = 'waiting';
     this.mode = 'waiting';
+    this.retryCount = 0;
     this.teachingMetrics = { clarity: 70, engagement: 70, pacing: 70, exampleUsage: 70, questionAsking: 70 };
     
     // Set callbacks
@@ -324,6 +369,68 @@ class TeacherMonitoringService {
     this.onLiveStatus = callbacks.onLiveStatus;
     this.onError = callbacks.onError;
     
+    // Request microphone permission first
+    this.requestMicrophoneAndStart();
+    
+    // Start periodic analysis updates
+    this.analysisInterval = setInterval(() => {
+      if (this.onAnalysisUpdate && this.isListening) {
+        this.onAnalysisUpdate(this.getDetailedAnalysis());
+      }
+    }, 1000);
+    
+    this.isListening = true;
+    return { success: true, mode: 'starting', message: '🎤 Requesting microphone access...' };
+  }
+
+  // Request microphone permission and start recognition
+  async requestMicrophoneAndStart() {
+    try {
+      // First request microphone permission explicitly
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('✅ Microphone permission granted');
+      
+      // Stop the stream immediately - we just needed permission
+      stream.getTracks().forEach(track => track.stop());
+      
+      // Now initialize and start speech recognition
+      const initResult = this.initSpeechRecognition();
+      if (!initResult.success) {
+        this.mode = 'simulation';
+        this.startSimulation();
+        if (this.onError) this.onError('Speech recognition not supported - using demo mode');
+        return;
+      }
+      
+      // Start listening
+      try {
+        this.recognition.start();
+        this.mode = 'live';
+        console.log('🎤 Speech recognition started');
+        if (this.onAnalysisUpdate) {
+          this.onAnalysisUpdate(this.getDetailedAnalysis());
+        }
+      } catch (error) {
+        console.error('Could not start speech recognition:', error);
+        this.mode = 'simulation';
+        this.startSimulation();
+      }
+    } catch (error) {
+      console.error('Microphone access error:', error);
+      if (error.name === 'NotAllowedError') {
+        if (this.onError) this.onError('Microphone access denied. Please allow microphone and refresh.');
+      } else if (error.name === 'NotFoundError') {
+        if (this.onError) this.onError('No microphone found. Using demo mode.');
+      } else {
+        if (this.onError) this.onError('Could not access microphone. Using demo mode.');
+      }
+      this.mode = 'simulation';
+      this.startSimulation();
+    }
+  }
+
+  // Original startMonitoring continuation for backward compatibility
+  startMonitoringLegacy(topic, subject, callbacks = {}) {
     // Initialize speech recognition if not done
     if (!this.recognition) {
       const initResult = this.initSpeechRecognition();
@@ -341,19 +448,9 @@ class TeacherMonitoringService {
       this.recognition.start();
       this.isListening = true;
       this.mode = 'live';
-      
-      // Start periodic analysis updates
-      this.analysisInterval = setInterval(() => {
-        if (this.onAnalysisUpdate && this.isListening) {
-          this.onAnalysisUpdate(this.getDetailedAnalysis());
-        }
-      }, 1000); // Update every second
-      
       return { success: true, mode: 'live', message: '🎤 Live microphone active' };
     } catch (error) {
       console.error('Could not start speech recognition:', error);
-      // Fallback to simulation
-      this.isListening = true;
       this.mode = 'simulation';
       this.startSimulation();
       return { success: true, mode: 'simulation', message: 'Using simulation mode' };
