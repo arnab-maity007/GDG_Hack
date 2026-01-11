@@ -10,7 +10,7 @@
 
 **🎓 Intelligent Education Management System for Indian Schools (Class 1-10)**
 
-[Live Demo](https://attendance-app-edupulse.vercel.app) | [Documentation](#features) | [Setup Guide](#quick-start)
+[Live Demo](https://gdg-hack-lovat.vercel.app/classroom) | [Documentation](#features) | [Setup Guide](#quick-start)
 
 </div>
 
