@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![EduPulse AI](https://img.shields.io/badge/EduPulse-AI-blue?style=for-the-badge&logo=graduation-cap)
+![EduPulse AI]([https://img.shields.io/badge/EduPulse-AI-blue?style=for-the-badge&logo=graduation-cap](https://gdg-hack-lovat.vercel.app/classroom))
 ![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react)
 ![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=for-the-badge&logo=vite)
 ![Node.js](https://img.shields.io/badge/Node.js-Express-339933?style=for-the-badge&logo=node.js)
