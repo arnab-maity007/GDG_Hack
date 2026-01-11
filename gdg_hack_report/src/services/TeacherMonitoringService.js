@@ -621,7 +621,6 @@ class TeacherMonitoringService {
       console.warn('AI analysis failed:', error);
     }
   }
-  }
 
   // Get keywords for current topic
   getTopicKeywords() {
