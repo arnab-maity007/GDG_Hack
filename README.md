@@ -238,9 +238,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👥 Team
 
-**GDG Hackathon 2024 Team**
+**NOT LIKE US**
 
-- Arnab Maity - Full Stack Developer
+- Arnab Maity - ML and backend developer
+- Mayank Jha - Full Stack developer
+- Sahil - Full Stack Developer
+- Umang - ML and Devops
 
 ---
 
@@ -254,7 +257,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <div align="center">
 
-**Made with ❤️ for Indian Schools**
 
 [⬆ Back to Top](#edupulse-ai---smart-attendance--classroom-monitoring-system)
 
