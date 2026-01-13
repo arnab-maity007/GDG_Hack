@@ -109,18 +109,22 @@ export const AdminDashboard = () => {
         </div>
       )}
 
-      {/* Live Camera Modal */}
+      {/* Live Camera Modal - IMPROVED FULL SCREEN */}
       {showLiveCamera && (
-        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-6xl">
-            <div className="flex justify-end mb-4">
-              <button
-                onClick={() => setShowLiveCamera(false)}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
-              >
-                Close Camera
-              </button>
-            </div>
+        <div className="fixed inset-0 bg-black/95 z-50 flex flex-col p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+              <Camera className="w-8 h-8 text-blue-400" />
+              Live Face Recognition - Admin View
+            </h2>
+            <button
+              onClick={() => setShowLiveCamera(false)}
+              className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold transition-colors"
+            >
+              Close Camera
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto">
             <LiveFaceCamera onAttendanceUpdate={() => setPresentStudents(faceDatabase.getPresentStudents())} />
           </div>
         </div>

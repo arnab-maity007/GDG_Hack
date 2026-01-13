@@ -31,39 +31,60 @@ const AttendancePanel = ({ onAttendanceUpdate }) => {
   const [showLiveCamera, setShowLiveCamera] = useState(false);
 
   return (
-    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-      <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4">
+    <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+      <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 p-5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Camera className="w-6 h-6 text-white" />
-            <h3 className="text-lg font-bold text-white">AI Face Attendance</h3>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+              <Camera className="w-7 h-7 text-white" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-white">AI Face Attendance</h3>
+              <p className="text-white/70 text-sm">Real-time face detection and recognition</p>
+            </div>
           </div>
           <button
             onClick={() => setShowLiveCamera(!showLiveCamera)}
-            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-all shadow-lg ${
               showLiveCamera 
                 ? 'bg-red-500 hover:bg-red-600 text-white' 
                 : 'bg-white hover:bg-gray-100 text-blue-600'
             }`}
           >
-            {showLiveCamera ? 'Close Camera' : 'Open Camera'}
+            {showLiveCamera ? (
+              <>
+                <X className="w-5 h-5" />
+                Close Camera
+              </>
+            ) : (
+              <>
+                <Camera className="w-5 h-5" />
+                Open Camera
+              </>
+            )}
           </button>
         </div>
       </div>
       
-      <div className="p-4">
+      <div className="p-5">
         {showLiveCamera ? (
           <LiveFaceCamera onAttendanceUpdate={onAttendanceUpdate} />
         ) : (
-          <div className="text-center py-8">
-            <Camera className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h4 className="text-lg font-medium text-gray-700 mb-2">Face Recognition Attendance</h4>
-            <p className="text-gray-500 mb-4">
-              Click "Open Camera" to start AI-powered attendance with face detection
+          <div className="text-center py-12">
+            <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center">
+              <Camera className="w-12 h-12 text-blue-400" />
+            </div>
+            <h4 className="text-xl font-bold text-gray-800 mb-2">Face Recognition Attendance</h4>
+            <p className="text-gray-500 mb-6 max-w-md mx-auto">
+              Click "Open Camera" to start AI-powered attendance with automatic face detection and student recognition
             </p>
-            <p className="text-sm text-gray-400">
-              Registered: Umang, Mayank, Arnab
-            </p>
+            <button
+              onClick={() => setShowLiveCamera(true)}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl font-semibold transition-all shadow-lg"
+            >
+              <Video className="w-5 h-5" />
+              Start Face Recognition
+            </button>
           </div>
         )}
       </div>

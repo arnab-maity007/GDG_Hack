@@ -27,6 +27,7 @@ class FaceRecognitionService {
       faceDatabase = dbModule.faceDatabase;
       await faceDatabase.initialize();
       this.registeredStudents = faceDatabase.getAllStudents();
+      console.log(`📚 Database initialized with ${this.registeredStudents.length} students`);
       
       // Try to load face-api.js
       try {
@@ -35,22 +36,30 @@ class FaceRecognitionService {
         
         const MODEL_URL = '/models';
         
-        console.log('Loading face detection models...');
+        console.log('🔄 Loading face detection models from', MODEL_URL);
         
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
-        ]);
+        // Load models one by one for better error tracking
+        console.log('Loading TinyFaceDetector...');
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        console.log('✅ TinyFaceDetector loaded');
+        
+        console.log('Loading FaceLandmark68Net...');
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        console.log('✅ FaceLandmark68Net loaded');
+        
+        console.log('Loading FaceRecognitionNet...');
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        console.log('✅ FaceRecognitionNet loaded');
 
         this.useSimulation = false;
-        console.log('✅ Real face detection models loaded');
+        console.log('✅ All face detection models loaded successfully!');
         
         // ENHANCED: Build face matcher from registered students
         await this.buildFaceMatcher();
         
       } catch (error) {
-        console.log('⚠️ Could not load face-api models, will try again on detection:', error.message);
+        console.error('❌ Could not load face-api models:', error);
+        console.log('⚠️ Falling back to simulation mode');
         this.useSimulation = true;
       }
 
@@ -302,18 +311,38 @@ class FaceRecognitionService {
 
   // ENHANCED: Real face-api.js detection with improved accuracy
   async realFaceDetection(videoElement, canvasElement, displaySize) {
-    if (!faceapi) return [];
+    if (!faceapi) {
+      console.warn('face-api not available for detection');
+      return [];
+    }
 
     try {
       faceapi.matchDimensions(canvasElement, displaySize);
 
+      // ENHANCED: Use lower score threshold (0.2) for better detection
+      const detectionOptions = new faceapi.TinyFaceDetectorOptions({ 
+        inputSize: 320,  // Smaller size for faster detection
+        scoreThreshold: 0.2  // Lower threshold for easier face detection
+      });
+
+      console.log('🔍 Running face detection...');
+      
       const detections = await faceapi
-        .detectAllFaces(videoElement, new faceapi.TinyFaceDetectorOptions({ 
-          inputSize: 416, 
-          scoreThreshold: 0.4 
-        }))
+        .detectAllFaces(videoElement, detectionOptions)
         .withFaceLandmarks()
         .withFaceDescriptors();
+      
+      console.log(`📸 Detected ${detections.length} face(s) in frame`);
+
+      if (detections.length === 0) {
+        console.log('⚠️ No faces detected in current frame');
+        // Clear canvas when no faces
+        const ctx = canvasElement?.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        }
+        return [];
+      }
 
       const resizedDetections = faceapi.resizeResults(detections, displaySize);
       const ctx = canvasElement?.getContext('2d');
