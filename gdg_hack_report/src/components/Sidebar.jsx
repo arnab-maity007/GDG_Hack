@@ -13,6 +13,7 @@ export const Sidebar = ({ isOpen, setIsOpen }) => {
       case 'admin':
         return [
           { label: 'Dashboard', path: '/admin/dashboard' },
+          { label: 'Registered Students', path: '/admin/students' },
           { label: 'Teacher Oversight', path: '/admin/teachers' },
           { label: 'System Report', path: '/admin/report' },
           { label: 'Alerts', path: '/admin/alerts' },

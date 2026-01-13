@@ -12,6 +12,7 @@ import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { TeacherOversight } from './pages/admin/TeacherOversight';
 import { SystemReport } from './pages/admin/SystemReport';
 import { AlertSystem } from './pages/admin/AlertSystem';
+import { RegisteredStudents } from './pages/admin/RegisteredStudents';
 
 // Teacher Pages
 import { TeacherDashboard } from './pages/teacher/TeacherDashboard';
@@ -67,6 +68,7 @@ function App() {
                     <Route path="/teachers" element={<TeacherOversight />} />
                     <Route path="/report" element={<SystemReport />} />
                     <Route path="/alerts" element={<AlertSystem />} />
+                    <Route path="/students" element={<RegisteredStudents />} />
                     <Route path="/" element={<AdminDashboard />} />
                   </Routes>
                 </Layout>

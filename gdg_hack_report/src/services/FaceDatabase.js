@@ -51,7 +51,7 @@ class FaceDatabase {
   async initialize() {
     if (this.initialized) return;
 
-    // Load pre-registered students
+    // Load pre-registered students first
     const preRegistered = this.getPreRegisteredStudents();
     preRegistered.forEach(student => {
       this.students.set(student.id, {
@@ -64,6 +64,12 @@ class FaceDatabase {
 
     // Initialize IndexedDB for persistence
     await this.initIndexedDB();
+    
+    // ENHANCED: Load students from IndexedDB (including ones added via admin panel)
+    await this.loadStoredStudents();
+    
+    // ENHANCED: Load face descriptors from IndexedDB
+    await this.loadStoredDescriptors();
     
     this.initialized = true;
     console.log('Face database initialized with', this.students.size, 'students');
@@ -99,6 +105,71 @@ class FaceDatabase {
         if (!db.objectStoreNames.contains('faceDescriptors')) {
           db.createObjectStore('faceDescriptors', { keyPath: 'studentId' });
         }
+      };
+    });
+  }
+
+  // ENHANCED: Load stored students from IndexedDB
+  async loadStoredStudents() {
+    if (!this.db) return;
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['students'], 'readonly');
+      const store = transaction.objectStore('students');
+      const request = store.getAll();
+      
+      request.onsuccess = () => {
+        const storedStudents = request.result || [];
+        console.log(`Loading ${storedStudents.length} students from IndexedDB...`);
+        
+        storedStudents.forEach(student => {
+          // Add/update student in memory, don't overwrite if already exists
+          if (!this.students.has(student.id)) {
+            this.students.set(student.id, {
+              ...student,
+              isPresent: false,
+              markedAt: null
+            });
+            console.log(`✅ Loaded student: ${student.name}`);
+          }
+        });
+        resolve();
+      };
+      
+      request.onerror = () => {
+        console.warn('Could not load stored students:', request.error);
+        resolve(); // Continue even if loading fails
+      };
+    });
+  }
+
+  // ENHANCED: Load face descriptors from IndexedDB and attach to students
+  async loadStoredDescriptors() {
+    if (!this.db) return;
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['faceDescriptors'], 'readonly');
+      const store = transaction.objectStore('faceDescriptors');
+      const request = store.getAll();
+      
+      request.onsuccess = () => {
+        const storedDescriptors = request.result || [];
+        console.log(`Loading ${storedDescriptors.length} face descriptors from IndexedDB...`);
+        
+        storedDescriptors.forEach(record => {
+          const student = this.students.get(record.studentId);
+          if (student && record.descriptors) {
+            student.faceDescriptors = record.descriptors;
+            this.students.set(record.studentId, student);
+            console.log(`✅ Loaded ${record.descriptors.length} descriptor(s) for ${student.name}`);
+          }
+        });
+        resolve();
+      };
+      
+      request.onerror = () => {
+        console.warn('Could not load stored descriptors:', request.error);
+        resolve(); // Continue even if loading fails
       };
     });
   }

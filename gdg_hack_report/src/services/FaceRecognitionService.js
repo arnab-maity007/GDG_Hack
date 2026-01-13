@@ -79,27 +79,39 @@ class FaceRecognitionService {
     for (const student of students) {
       const descriptors = [];
       
-      // Load face descriptors from stored data
+      // ENHANCED: Load face descriptors from stored data in database
       if (student.faceDescriptors && student.faceDescriptors.length > 0) {
+        console.log(`Loading ${student.faceDescriptors.length} stored descriptor(s) for ${student.name}`);
         student.faceDescriptors.forEach(desc => {
           if (Array.isArray(desc)) {
             descriptors.push(new Float32Array(desc));
+          } else if (desc instanceof Float32Array) {
+            descriptors.push(desc);
           }
         });
       }
       
-      // Also try to extract from photos if no descriptors stored
+      // Also try to extract from photos if no descriptors stored (for pre-registered students)
       if (descriptors.length === 0 && student.photos && student.photos.length > 0) {
+        console.log(`No stored descriptors for ${student.name}, extracting from photos...`);
         for (const photoUrl of student.photos) {
           try {
-            const descriptor = await this.extractFaceDescriptorFromUrl(photoUrl);
+            // Handle both data URLs and file paths
+            let descriptor = null;
+            if (photoUrl.startsWith('data:')) {
+              descriptor = await this.extractFaceDescriptorFromDataUrl(photoUrl);
+            } else {
+              descriptor = await this.extractFaceDescriptorFromUrl(photoUrl);
+            }
+            
             if (descriptor) {
               descriptors.push(descriptor);
               // Save descriptor to database for future use
               await faceDatabase.storeFaceDescriptor(student.id, Array.from(descriptor));
+              console.log(`✅ Extracted and saved descriptor for ${student.name}`);
             }
           } catch (e) {
-            console.warn('Could not extract descriptor from', photoUrl);
+            console.warn('Could not extract descriptor from', photoUrl, e.message);
           }
         }
       }
@@ -109,15 +121,18 @@ class FaceRecognitionService {
         const label = JSON.stringify({ id: student.id, name: student.name });
         labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(label, descriptors));
         console.log(`✅ Loaded ${descriptors.length} face descriptor(s) for ${student.name}`);
+      } else {
+        console.warn(`⚠️ No face descriptors available for ${student.name}`);
       }
     }
     
     if (labeledDescriptors.length > 0) {
       this.labeledDescriptors = labeledDescriptors;
-      this.faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.5); // 0.5 threshold for matching
+      // ENHANCED: Increased threshold to 0.6 for better matching (lower = stricter)
+      this.faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
       console.log('✅ Face matcher built with', labeledDescriptors.length, 'students');
     } else {
-      console.warn('No face descriptors available for matching');
+      console.warn('⚠️ No face descriptors available for matching - please register students with photos');
     }
   }
 
@@ -317,11 +332,14 @@ class FaceRecognitionService {
           isRecognized: false
         };
 
-        // ENHANCED: Better face matching with threshold
+        // ENHANCED: Better face matching with improved threshold
         if (this.faceMatcher) {
           const bestMatch = this.faceMatcher.findBestMatch(detection.descriptor);
           
-          if (bestMatch.label !== 'unknown' && bestMatch.distance < 0.5) {
+          console.log(`Face match result: ${bestMatch.label} (distance: ${bestMatch.distance.toFixed(3)})`);
+          
+          // ENHANCED: Use 0.6 threshold for better matching (lower distance = better match)
+          if (bestMatch.label !== 'unknown' && bestMatch.distance < 0.6) {
             try {
               const labelData = JSON.parse(bestMatch.label);
               matchResult = {
@@ -340,8 +358,8 @@ class FaceRecognitionService {
             } catch (e) {
               matchResult.name = bestMatch.label;
             }
-          } else if (bestMatch.label !== 'unknown') {
-            // Low confidence match - show name but mark as uncertain
+          } else if (bestMatch.label !== 'unknown' && bestMatch.distance < 0.75) {
+            // ENHANCED: Medium confidence match - show name with question mark
             try {
               const labelData = JSON.parse(bestMatch.label);
               matchResult = {
@@ -350,7 +368,10 @@ class FaceRecognitionService {
                 confidence: 1 - bestMatch.distance,
                 isRecognized: false
               };
+              console.log(`🤔 Possible match: ${labelData.name} (${((1 - bestMatch.distance) * 100).toFixed(1)}% confidence)`);
             } catch (e) {}
+          } else {
+            console.log(`❌ No match found (best distance: ${bestMatch.distance.toFixed(3)})`);
           }
         }
 
