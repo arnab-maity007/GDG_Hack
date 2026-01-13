@@ -9,12 +9,17 @@ class FaceRecognitionService {
     this.labeledDescriptors = null;
     this.faceMatcher = null;
     this.isProcessing = false;
-    this.useSimulation = false; // CHANGED: Default to real detection
+    this.useSimulation = false;
     this.simulationTimer = null;
     this.registeredStudents = [];
-    this.faceDescriptorCache = new Map(); // Cache for face descriptors
+    this.faceDescriptorCache = new Map();
     this.lastDetectionTime = 0;
-    this.detectionThrottle = 100; // ms between detections
+    this.detectionThrottle = 100;
+    
+    // SMOOTHING: Store previous face positions for stabilization
+    this.previousFaces = new Map(); // Map of face ID -> smoothed position
+    this.smoothingFactor = 0.25; // Lower = smoother but slower response (0.2-0.4 works well)
+    this.faceIdCounter = 0;
   }
 
   // Load face-api.js models - ENHANCED for real face matching
@@ -137,9 +142,10 @@ class FaceRecognitionService {
     
     if (labeledDescriptors.length > 0) {
       this.labeledDescriptors = labeledDescriptors;
-      // ENHANCED: Increased threshold to 0.6 for better matching (lower = stricter)
-      this.faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
-      console.log('✅ Face matcher built with', labeledDescriptors.length, 'students');
+      // ENHANCED: Use 0.75 threshold for much better matching accuracy
+      // Lower distance = better match. 0.75 is more lenient than 0.6
+      this.faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.75);
+      console.log('✅ Face matcher built with', labeledDescriptors.length, 'students (threshold: 0.75)');
     } else {
       console.warn('⚠️ No face descriptors available for matching - please register students with photos');
     }
@@ -309,7 +315,7 @@ class FaceRecognitionService {
     return recognizedFaces;
   }
 
-  // ENHANCED: Real face-api.js detection with improved accuracy
+  // ENHANCED: Real face-api.js detection with improved accuracy and SMOOTHING
   async realFaceDetection(videoElement, canvasElement, displaySize) {
     if (!faceapi) {
       console.warn('face-api not available for detection');
@@ -321,39 +327,34 @@ class FaceRecognitionService {
 
       // ENHANCED: Use lower score threshold (0.2) for better detection
       const detectionOptions = new faceapi.TinyFaceDetectorOptions({ 
-        inputSize: 320,  // Smaller size for faster detection
-        scoreThreshold: 0.2  // Lower threshold for easier face detection
+        inputSize: 320,
+        scoreThreshold: 0.2
       });
-
-      console.log('🔍 Running face detection...');
       
       const detections = await faceapi
         .detectAllFaces(videoElement, detectionOptions)
         .withFaceLandmarks()
         .withFaceDescriptors();
-      
-      console.log(`📸 Detected ${detections.length} face(s) in frame`);
 
-      if (detections.length === 0) {
-        console.log('⚠️ No faces detected in current frame');
-        // Clear canvas when no faces
-        const ctx = canvasElement?.getContext('2d');
-        if (ctx) {
-          ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-        }
-        return [];
-      }
-
-      const resizedDetections = faceapi.resizeResults(detections, displaySize);
       const ctx = canvasElement?.getContext('2d');
-      
       if (ctx) {
         ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       }
 
-      const recognizedFaces = [];
+      if (detections.length === 0) {
+        // Gradually fade out previous faces
+        this.previousFaces.clear();
+        return [];
+      }
 
-      for (const detection of resizedDetections) {
+      const resizedDetections = faceapi.resizeResults(detections, displaySize);
+      const recognizedFaces = [];
+      const currentFaceIds = new Set();
+
+      for (let i = 0; i < resizedDetections.length; i++) {
+        const detection = resizedDetections[i];
+        const rawBox = detection.detection.box;
+        
         let matchResult = {
           name: 'Unknown',
           studentId: null,
@@ -361,14 +362,11 @@ class FaceRecognitionService {
           isRecognized: false
         };
 
-        // ENHANCED: Better face matching with improved threshold
+        // Face matching
         if (this.faceMatcher) {
           const bestMatch = this.faceMatcher.findBestMatch(detection.descriptor);
           
-          console.log(`Face match result: ${bestMatch.label} (distance: ${bestMatch.distance.toFixed(3)})`);
-          
-          // ENHANCED: Use 0.6 threshold for better matching (lower distance = better match)
-          if (bestMatch.label !== 'unknown' && bestMatch.distance < 0.6) {
+          if (bestMatch.label !== 'unknown' && bestMatch.distance < 0.75) {
             try {
               const labelData = JSON.parse(bestMatch.label);
               matchResult = {
@@ -377,18 +375,13 @@ class FaceRecognitionService {
                 confidence: 1 - bestMatch.distance,
                 isRecognized: true
               };
-              
-              // Mark student as present
               if (faceDatabase) {
                 faceDatabase.markPresent(labelData.id);
               }
-              
-              console.log(`✅ Recognized: ${labelData.name} (${((1 - bestMatch.distance) * 100).toFixed(1)}% match)`);
             } catch (e) {
               matchResult.name = bestMatch.label;
             }
-          } else if (bestMatch.label !== 'unknown' && bestMatch.distance < 0.75) {
-            // ENHANCED: Medium confidence match - show name with question mark
+          } else if (bestMatch.label !== 'unknown' && bestMatch.distance < 0.85) {
             try {
               const labelData = JSON.parse(bestMatch.label);
               matchResult = {
@@ -397,25 +390,51 @@ class FaceRecognitionService {
                 confidence: 1 - bestMatch.distance,
                 isRecognized: false
               };
-              console.log(`🤔 Possible match: ${labelData.name} (${((1 - bestMatch.distance) * 100).toFixed(1)}% confidence)`);
             } catch (e) {}
-          } else {
-            console.log(`❌ No match found (best distance: ${bestMatch.distance.toFixed(3)})`);
           }
         }
 
-        // ENHANCED: Draw face box with name above head
+        // SMOOTHING: Create a unique ID for this face based on position or studentId
+        const faceKey = matchResult.studentId || `face_${i}_${Math.round(rawBox.x / 50)}`;
+        currentFaceIds.add(faceKey);
+        
+        // Get or create smoothed position
+        let smoothedBox;
+        if (this.previousFaces.has(faceKey)) {
+          const prev = this.previousFaces.get(faceKey);
+          // Lerp (linear interpolation) between previous and current position
+          smoothedBox = {
+            x: prev.x + (rawBox.x - prev.x) * this.smoothingFactor,
+            y: prev.y + (rawBox.y - prev.y) * this.smoothingFactor,
+            width: prev.width + (rawBox.width - prev.width) * this.smoothingFactor,
+            height: prev.height + (rawBox.height - prev.height) * this.smoothingFactor
+          };
+        } else {
+          // First detection - use raw values
+          smoothedBox = { ...rawBox };
+        }
+        
+        // Store smoothed position for next frame
+        this.previousFaces.set(faceKey, smoothedBox);
+
+        // Draw with smoothed box
         if (ctx) {
-          const box = detection.detection.box;
-          this.drawEnhancedFaceBox(ctx, box, matchResult, detection.landmarks);
+          this.drawEnhancedFaceBox(ctx, smoothedBox, matchResult, detection.landmarks);
         }
 
         recognizedFaces.push({
           ...matchResult,
-          box: detection.detection.box,
+          box: smoothedBox,
           timestamp: new Date().toISOString(),
           landmarks: detection.landmarks
         });
+      }
+      
+      // Clean up old faces that are no longer detected
+      for (const key of this.previousFaces.keys()) {
+        if (!currentFaceIds.has(key)) {
+          this.previousFaces.delete(key);
+        }
       }
 
       return recognizedFaces;
@@ -618,7 +637,8 @@ class FaceRecognitionService {
       this.labeledDescriptors = [newLabeledDescriptor];
     }
     
-    this.faceMatcher = new faceapi.FaceMatcher(this.labeledDescriptors, 0.5);
+    // FIXED: Use same threshold as main buildFaceMatcher (0.75)
+    this.faceMatcher = new faceapi.FaceMatcher(this.labeledDescriptors, 0.75);
     console.log(`✅ Face matcher updated with ${student.name}`);
   }
 

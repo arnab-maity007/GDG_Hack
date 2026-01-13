@@ -133,7 +133,7 @@ const LiveFaceCamera = ({ onAttendanceUpdate }) => {
           console.error('Detection error:', e);
         }
       }
-    }, 150); // Faster detection - every 150ms
+    }, 100); // Faster detection - every 100ms for smoother tracking
   };
 
   const toggleCamera = () => {
